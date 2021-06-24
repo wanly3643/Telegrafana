@@ -12,13 +12,13 @@ import (
 	// "github.com/gin-gonic/gin"
 )
 
-func main() {
-	// Check Docker environment
-	if err := CheckDockerEnv(); err != nil {
-		fmt.Printf("Docker Environment is not avaiable: %s", err)
-		os.Exit(-1)
-	}
+type Service interface {
+	Start() error
+}
 
+
+
+func main() {
 	// Start Api Server
 	strPort := os.Getenv("PORT")
 	port := PORT
@@ -31,5 +31,5 @@ func main() {
 		}
 	}
 	
-	NewTelegrafanaApiServer(ADDR, port).Start()
+	NewTelegrafana(ADDR, port).Start()
 }

@@ -12,10 +12,10 @@ Telegrafana是一个管理Telegraf的Docker实例的可视化工具，包括的�
 
 ### 组件
 
-+ Web UI
+#### Web UI
 
-+ API Server
+#### API Server
 
-+ Docker控制
+#### Telegraf的Docker实例管理
 
-+ 监视模块
+#### Telegraf配置管理
