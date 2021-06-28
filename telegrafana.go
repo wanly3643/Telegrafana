@@ -12,6 +12,7 @@ import (
 type Telegrafana struct {
 	Server *ApiServer
 	InstanceManager *TelegrafInstanceManager
+	ConfigManager *TelegrafConfigManager
 }
 
 func DefaultTelegrafana() *Telegrafana {
@@ -19,10 +20,14 @@ func DefaultTelegrafana() *Telegrafana {
 }
 
 func NewTelegrafana(addr string, port int) *Telegrafana {
-	return &Telegrafana {
-		Server: NewApiServer(addr, port),
+	t := &Telegrafana {
 		InstanceManager: NewTelegrafIntanceManager(),
+		ConfigManager: NewTelegrafConfigManager(),
 	}
+
+	t.Server = NewApiServer(addr, port, t)
+
+	return t
 }
 
 func (t *Telegrafana) startInstanceManager() error {

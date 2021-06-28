@@ -1,3 +1,5 @@
+// API Server
+
 package main
 
 import (
@@ -21,6 +23,22 @@ type ApiServer struct {
 	Addr string
 	Port int
 	Engine *gin.Engine
+	Srv *Telegrafana
+}
+
+// Create standard response
+func createApiResp(err error, data map[string]interface{}) map[string]interface{} {
+	resp := map[string]interface{}{
+	}
+
+	if err != nil {
+		resp["status"] = 1
+		resp["message"] = ""
+	} else {
+		resp["status"] = 0
+	}
+
+	return resp
 }
 
 
@@ -72,11 +90,11 @@ func getIpFromAddr(addr net.Addr) string {
 }
 
 
-func DefaultApiServer() *ApiServer {
-	return NewApiServer("0.0.0.0", PORT)
+func DefaultApiServer(srv *Telegrafana) *ApiServer {
+	return NewApiServer("0.0.0.0", PORT, srv)
 }
 
-func NewApiServer(addr string, port int) *ApiServer {
+func NewApiServer(addr string, port int, srv *Telegrafana) *ApiServer {
 	// Initializa routers
 	r := gin.Default()
 
@@ -85,16 +103,12 @@ func NewApiServer(addr string, port int) *ApiServer {
 	r.Static("/assets", "./html/assets")
 	r.GET("/", renderConsolePage)
 
-	// Web Apis
-	r.GET("/instance/:name/start", startTelegrafInstance)
-	r.GET("/config/:name/", getTelegrafConfig)
-	r.GET("/instances", getInstances)
-
 	return &ApiServer {
 		Host: "",
 		Addr: addr,
 		Port: port,
 		Engine: r,
+		Srv: srv,
 	}
 }
 
@@ -103,20 +117,29 @@ func (t *ApiServer) Start() error {
 	if hostname, err := externalIP(); err != nil {
 		return err
 	} else {
+		fmt.Printf("The hostname is: %s\n", hostname)
 		t.Host = hostname
 	}
 
 	addr := fmt.Sprintf("%s:%d", t.Addr, t.Port)
+
+	// Web Apis
+	t.Engine.POST("/instance/create", t.createTelegrafInstance)
+	t.Engine.GET("/instance/:name/start", t.startTelegrafInstance)
+	t.Engine.GET("/instance/:name/config", t.getTelegrafConfig)
+	t.Engine.GET("/instances", t.getInstances)
+	t.Engine.GET("/config/:name", t.getTelegrafConfig)
+
 	return t.Engine.Run(addr)
 }
 
-func getInstances(c *gin.Context) {
+func (t *ApiServer)getInstances(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"message": "pong",
 	})
 }
 
-func startTelegrafInstance(c *gin.Context) {
+func (t *ApiServer)startTelegrafInstance(c *gin.Context) {
 	// instanceID := c.Param("name")
 	// err := runAgent(instanceID)
 	// if err != nil {
@@ -126,7 +149,20 @@ func startTelegrafInstance(c *gin.Context) {
 	//
 }
 
-func getTelegrafConfig(c *gin.Context) {
+func (t *ApiServer)createTelegrafInstance(c *gin.Context) {
+	// Create Telegraf Config and Get the ID
+	configID := "ac164"
+	configUrl := fmt.Sprintf("http://%s:%d/config/%s", t.Host, t.Port, configID)
+	fmt.Println("Config URL:", configUrl)
+	instanceID, err := t.Srv.InstanceManager.RunTelegrafInstance(configUrl)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"status": "OK", "data": map[string]interface{}{"ID": instanceID}})
+	}
+}
+
+func (t *ApiServer)getTelegrafConfig(c *gin.Context) {
 	configID := c.Param("name")
 	// err := runAgent(instanceID)
 	// if err != nil {
