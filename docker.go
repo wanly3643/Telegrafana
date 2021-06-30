@@ -1,3 +1,5 @@
+// This is module to handle the docker 
+
 package main
 
 import (
@@ -6,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -24,6 +27,12 @@ const DOCKER_CONTAINER_RESTART_LIMIT = 5
 type TelegrafInstanceManager struct {
 	client *client.Client
 	ctx context.Context
+}
+
+type TelegrafInstanceStat struct {
+	ID string
+	Name string
+	Status string
 }
 
 func NewTelegrafIntanceManager() *TelegrafInstanceManager {
@@ -93,7 +102,7 @@ func (m *TelegrafInstanceManager) Start() error {
 	return nil
 }
 
-func (m *TelegrafInstanceManager) RunTelegrafInstance(configUrl string) (string, error) {
+func (m *TelegrafInstanceManager) CreateTelegrafInstance(configUrl string) (string, error) {
 	if m.client == nil || m.ctx == nil {
 		return "", errors.New("Please Start first")
 	}
@@ -112,11 +121,104 @@ func (m *TelegrafInstanceManager) RunTelegrafInstance(configUrl string) (string,
 		return "", err
 	}
 
-	if err := m.client.ContainerStart(m.ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		return resp.ID, nil
-	}
+	// err = m.StartTelegrafInstance(resp.ID)
+	// if err != nil {
+	// 	return resp.ID, err
+	// }
 
-	fmt.Println("Docker instance started:", resp.ID)
+	// fmt.Println("Docker instance started:", resp.ID)
 
 	return resp.ID, nil
+}
+
+func (m *TelegrafInstanceManager) GetTelegrafInstances() ([]TelegrafInstanceStat, error) {
+	ret := make([]TelegrafInstanceStat, 0, 100)
+	if m.client == nil || m.ctx == nil {
+		return ret, errors.New("Please Start first")
+	}
+
+	containers, err :=  m.client.ContainerList(m.ctx, types.ContainerListOptions{All: true,})
+	if err != nil {
+		return ret, err
+	}
+
+	for _, container := range containers {
+		for _, name := range container.Names {
+			if strings.HasPrefix(name, "/") {
+				name = name[1:]
+			}
+
+			if strings.HasPrefix(name, TELEGRAF_DOCKER_CONTAINER_PREFIX) {
+				ret = append(ret, TelegrafInstanceStat{
+					ID: container.ID,
+					Name: name,
+					Status: container.Status,
+				})
+			}
+		}
+	}
+
+	return ret, nil
+}
+
+func (m *TelegrafInstanceManager) GetTelegrafInstanceStat(containerID string) (*TelegrafInstanceStat, error) {
+	if m.client == nil || m.ctx == nil {
+		return nil, errors.New("Please Start first")
+	}
+
+	containers, err :=  m.client.ContainerList(m.ctx, types.ContainerListOptions{All: true,})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, container := range containers {
+		if container.ID == containerID {
+			name := ""
+			if len(container.Names) > 0 {
+				name = container.Names[0]
+			}
+			return &TelegrafInstanceStat{
+				ID: container.ID,
+				Name: name,
+				Status: container.Status,
+			}, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// Start the existing docker container of telegraf
+func (m *TelegrafInstanceManager) StartTelegrafInstance(instanceID string) error {
+	return m.client.ContainerStart(m.ctx, instanceID, types.ContainerStartOptions{}); 
+}
+
+// Stop the existing docker container of telegraf
+func (m *TelegrafInstanceManager) StopTelegrafInstance(instanceID string) error {
+	return m.client.ContainerStop(m.ctx, instanceID, nil);
+}
+
+// Restart the existing docker container of telegraf
+func (m *TelegrafInstanceManager) RestartTelegrafInstance(instanceID string) error {
+	err := m.StopTelegrafInstance(instanceID)
+	if err != nil {
+		return err
+	}
+
+	return m.StartTelegrafInstance(instanceID)
+}
+
+// Remove the existing docker container of telegraf
+func (m *TelegrafInstanceManager) RemoveTelegrafInstance(instanceID string) error {
+	err := m.StopTelegrafInstance(instanceID)
+	if err != nil && !strings.HasPrefix(err.Error(), "Error response from daemon: No such container: ") {
+		return err
+	}
+
+	err = m.client.ContainerRemove(m.ctx, instanceID, types.ContainerRemoveOptions{Force: true,});
+	if err != nil && !strings.HasPrefix(err.Error(), "Error: No such container: ") {
+		return err
+	} else {
+		return nil
+	}
 }

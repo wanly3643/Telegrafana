@@ -13,6 +13,7 @@ type Telegrafana struct {
 	Server *ApiServer
 	InstanceManager *TelegrafInstanceManager
 	ConfigManager *TelegrafConfigManager
+	StorageManager *LocalStorage
 }
 
 func DefaultTelegrafana() *Telegrafana {
@@ -23,6 +24,7 @@ func NewTelegrafana(addr string, port int) *Telegrafana {
 	t := &Telegrafana {
 		InstanceManager: NewTelegrafIntanceManager(),
 		ConfigManager: NewTelegrafConfigManager(),
+		StorageManager: NewLocalStorage(),
 	}
 
 	t.Server = NewApiServer(addr, port, t)
@@ -56,4 +58,8 @@ func (t *Telegrafana) Start() error {
 	}
 
 	return nil
+}
+
+func (t *Telegrafana) Stop () error {
+	return t.StorageManager.Stop()
 }

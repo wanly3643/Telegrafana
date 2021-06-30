@@ -6,6 +6,7 @@ import (
 	// "context"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net"
 	// "os"
@@ -13,6 +14,7 @@ import (
 	// "syscall"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 const PORT = 8080
@@ -27,15 +29,16 @@ type ApiServer struct {
 }
 
 // Create standard response
-func createApiResp(err error, data map[string]interface{}) map[string]interface{} {
+func createApiResp(err error, data interface{})interface{} {
 	resp := map[string]interface{}{
 	}
 
 	if err != nil {
 		resp["status"] = 1
-		resp["message"] = ""
+		resp["message"] = err.Error()
 	} else {
 		resp["status"] = 0
+		resp["data"] = data
 	}
 
 	return resp
@@ -125,55 +128,244 @@ func (t *ApiServer) Start() error {
 
 	// Web Apis
 	t.Engine.POST("/instance/create", t.createTelegrafInstance)
-	t.Engine.GET("/instance/:name/start", t.startTelegrafInstance)
-	t.Engine.GET("/instance/:name/config", t.getTelegrafConfig)
-	t.Engine.GET("/instances", t.getInstances)
-	t.Engine.GET("/config/:name", t.getTelegrafConfig)
+	t.Engine.POST("/instance/start/:name", t.startTelegrafInstance)
+	t.Engine.POST("/instance/stop/:name", t.stopTelegrafInstance)
+	t.Engine.POST("/instance/restart/:name", t.restartTelegrafInstance)
+	t.Engine.POST("/instance/delete/:name", t.removeTelegrafInstance)
+	t.Engine.GET("/instance/config/:name", t.getTelegrafConfig)
+	t.Engine.GET("/instance/detail/:name", t.getTelegrafInstance)
+	t.Engine.GET("/instance/list", t.getInstances)
 
 	return t.Engine.Run(addr)
 }
 
 func (t *ApiServer)getInstances(c *gin.Context) {
-	c.JSON(200, gin.H{
-		"message": "pong",
-	})
+	// Get all the instance information list
+	instances, err := t.Srv.StorageManager.GetInstanceList()
+	total := len(instances)
+	if err != nil || total < 1 {
+		data := map[string]interface{} {
+			"total": total,
+			"data": make([]interface{}, 0),
+		}
+		c.JSON(http.StatusOK, createApiResp(nil, data))
+		return
+	}
+
+	// Group by ID
+	instanceStatsByID := map[string]*TelegrafInstanceStat{}
+	instanceStats, err := t.Srv.InstanceManager.GetTelegrafInstances()
+	if err == nil && len(instanceStats) > 0 {
+		for _, s := range instanceStats {
+			instanceStatsByID[s.ID] = &s
+		}
+	}
+
+	// Append docker container status one by one
+	data := make([]TelegrafInstanceResp, 0, total)
+	for _, i := range instances {
+		s, ok := instanceStatsByID[i.DockerContainerID]
+		if ok {
+			data = append(data, t.createInstanceResp(&i, s))
+		} else {
+			data = append(data, t.createInstanceResp(&i, nil))
+		}
+	}
+
+	// Send response
+	ret := map[string]interface{} {
+		"total": total,
+		"data": data,
+	}
+	c.JSON(http.StatusOK, createApiResp(nil, ret))
+}
+
+type HandlerFunc func(string) error
+
+func (t *ApiServer)handleTelegrafInstance(c *gin.Context, handler HandlerFunc) {
+	instanceID := c.Param("name")
+	instanceInfo, err := t.Srv.StorageManager.GetInstance(instanceID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
+		return
+	}
+
+	if instanceInfo == nil {
+		c.JSON(http.StatusNotFound, createApiResp(err, nil))
+		return
+	}
+
+	err = handler(instanceInfo.DockerContainerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
+		return
+	}
+
+	c.JSON(http.StatusOK, createApiResp(err, nil))
 }
 
 func (t *ApiServer)startTelegrafInstance(c *gin.Context) {
-	// instanceID := c.Param("name")
-	// err := runAgent(instanceID)
-	// if err != nil {
-	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": err})
-	// } else {
-		c.JSON(http.StatusOK, gin.H{"status": "OK"})
-	//
+	t.handleTelegrafInstance(c, t.Srv.InstanceManager.StartTelegrafInstance)
+}
+
+func (t *ApiServer)stopTelegrafInstance(c *gin.Context) {
+	t.handleTelegrafInstance(c, t.Srv.InstanceManager.StopTelegrafInstance)
+}
+
+func (t *ApiServer)restartTelegrafInstance(c *gin.Context) {
+	t.handleTelegrafInstance(c, t.Srv.InstanceManager.RestartTelegrafInstance)
+}
+
+func (t *ApiServer)createTelegrafConfig(c *gin.Context) (string, error) {
+	b, err := ioutil.ReadFile("./test001.conf")
+	if err != nil {
+		return "", err
+	}
+
+	return string(b), nil
+}
+
+func (t *ApiServer)removeTelegrafInstance(c *gin.Context) {
+	instanceID := c.Param("name")
+	fmt.Println("ID:", instanceID)
+
+	instanceInfo, err := t.Srv.StorageManager.GetInstance(instanceID)
+	if err != nil || instanceInfo == nil{
+		c.JSON(http.StatusNotFound, createApiResp(nil, nil))
+		return
+	}
+
+	// Remove docker instance
+	err = t.Srv.InstanceManager.RemoveTelegrafInstance(instanceInfo.DockerContainerID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, createApiResp(err, nil))
+		return
+	}
+
+	// Remove information from database
+	err = t.Srv.StorageManager.RemoveInstance(instanceID)
+
+	// Return Response
+	c.JSON(http.StatusNotFound, createApiResp(nil, nil))
 }
 
 func (t *ApiServer)createTelegrafInstance(c *gin.Context) {
-	// Create Telegraf Config and Get the ID
-	configID := "ac164"
-	configUrl := fmt.Sprintf("http://%s:%d/config/%s", t.Host, t.Port, configID)
+	instanceID := uuid.New().String()
+	configUrl := fmt.Sprintf("http://%s:%d/instance/config/%s", t.Host, t.Port, instanceID)
 	fmt.Println("Config URL:", configUrl)
-	instanceID, err := t.Srv.InstanceManager.RunTelegrafInstance(configUrl)
+
+	// Create Telegraf Config and Get the ID
+	configStr, err := t.createTelegrafConfig(c)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{})
+		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
+		return
+	}
+
+	// Create docker container but not start
+	containerID, err := t.Srv.InstanceManager.CreateTelegrafInstance(configUrl)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
+		return
+	}
+
+	// Add information into database
+	instanceObj := &TelegrafInstanceInfo {
+		ID: instanceID,
+		Name: "",
+		DockerContainerID: containerID,
+		Config: configStr,
+		Description: "",
+		Created: GetCurrentTimeString(),
+	}
+	err = t.Srv.StorageManager.PutInstance(instanceObj)
+	if err != nil {
+		// Remove the create docker container
+		t.Srv.InstanceManager.RemoveTelegrafInstance(containerID)
+		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
+		return
+	}
+
+	// Start the container
+	err = t.Srv.InstanceManager.StartTelegrafInstance(containerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
 	} else {
-		c.JSON(http.StatusOK, gin.H{"status": "OK", "data": map[string]interface{}{"ID": instanceID}})
+		data := map[string]interface{} {
+			"id": instanceID,
+		}
+		c.JSON(http.StatusOK, createApiResp(nil, data))
 	}
 }
 
 func (t *ApiServer)getTelegrafConfig(c *gin.Context) {
-	configID := c.Param("name")
+	instanceID := c.Param("name")
+	fmt.Println("ID:", instanceID)
+	instanceInfo, err := t.Srv.StorageManager.GetInstance(instanceID)
 	// err := runAgent(instanceID)
-	// if err != nil {
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
+		return
+	}
+	
+	if instanceInfo == nil {
+		c.JSON(http.StatusNotFound, createApiResp(nil, nil))
+		return
+	}
 	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 	// } else {
 	// c.JSON(http.StatusOK, gin.H{"status": "OK"})
 	// }
 
-	c.Writer.Header().Add("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.toml\"", configID))
-    c.Writer.Header().Add("Content-Type", "application/octet-stream")
-	c.File("./test001.conf")
+	c.Writer.Header().Add("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.toml\"", instanceID))
+	c.Data(http.StatusOK, "application/octet-stream", []byte(instanceInfo.Config))
+}
+
+type TelegrafInstanceResp struct {
+	ID string `json:"id"`
+	Name string `json:"name"`
+	Status string `json:"status"`
+	Created string `json:"created"`
+	Config string `json:"config"`
+}
+
+func (t *ApiServer)createInstanceResp(instanceInfo *TelegrafInstanceInfo, containerStat *TelegrafInstanceStat) TelegrafInstanceResp {
+	status := "Removed"
+	if containerStat != nil {
+		status = containerStat.Status
+	}
+	return TelegrafInstanceResp{
+		ID: instanceInfo.ID,
+		Name: instanceInfo.Name,
+		Config: instanceInfo.Config,
+		Created: instanceInfo.Created,
+		Status: status,
+	}
+}
+
+func (t *ApiServer)getTelegrafInstance(c *gin.Context) {
+	instanceID := c.Param("name")
+	fmt.Println("ID:", instanceID)
+	instanceInfo, err := t.Srv.StorageManager.GetInstance(instanceID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
+		return
+	}
+	
+	if instanceInfo == nil {
+		c.JSON(http.StatusNotFound, createApiResp(nil, nil))
+		return
+	}
+
+	containerInfo, err := t.Srv.InstanceManager.GetTelegrafInstanceStat(instanceInfo.DockerContainerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
+		return
+	}
+
+	// Send response
+	var data interface {}
+	data= t.createInstanceResp(instanceInfo, containerInfo)
+	c.JSON(http.StatusOK, createApiResp(nil, data))
 }
 
 func renderConsolePage(c *gin.Context) {
