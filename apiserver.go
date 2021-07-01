@@ -7,8 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"net"
+	"net/http"
+
 	// "os"
 	// "os/signal"
 	// "syscall"
@@ -21,17 +22,16 @@ const PORT = 8080
 const ADDR = "0.0.0.0"
 
 type ApiServer struct {
-	Host string
-	Addr string
-	Port int
+	Host   string
+	Addr   string
+	Port   int
 	Engine *gin.Engine
-	Srv *Telegrafana
+	Srv    *Telegrafana
 }
 
 // Create standard response
-func createApiResp(err error, data interface{})interface{} {
-	resp := map[string]interface{}{
-	}
+func createApiResp(err error, data interface{}) interface{} {
+	resp := map[string]interface{}{}
 
 	if err != nil {
 		resp["status"] = 1
@@ -44,54 +44,52 @@ func createApiResp(err error, data interface{})interface{} {
 	return resp
 }
 
-
 // Get the IP of Api Server
 func externalIP() (string, error) {
-    ifaces, err := net.Interfaces()
-    if err != nil {
-        return "", err
-    }
-    for _, iface := range ifaces {
-        if iface.Flags&net.FlagUp == 0 {
-            continue // interface down
-        }
-        if iface.Flags&net.FlagLoopback != 0 {
-            continue // loopback interface
-        }
-        addrs, err := iface.Addrs()
-        if err != nil {
-            return "", err
-        }
-        for _, addr := range addrs {
-            ip := getIpFromAddr(addr)
-            if ip == "" {
-                continue
-            }
-            return ip, nil
-        }
-    }
-    return "", errors.New("connected to the network?")
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // loopback interface
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return "", err
+		}
+		for _, addr := range addrs {
+			ip := getIpFromAddr(addr)
+			if ip == "" {
+				continue
+			}
+			return ip, nil
+		}
+	}
+	return "", errors.New("connected to the network?")
 }
 
 func getIpFromAddr(addr net.Addr) string {
-    var ip net.IP
-    switch v := addr.(type) {
-    case *net.IPNet:
-        ip = v.IP
-    case *net.IPAddr:
-        ip = v.IP
-    }
-    if ip == nil || ip.IsLoopback() {
-        return ""
-    }
-    ip = ip.To4()
-    if ip == nil {
-        return "" // not an ipv4 address
-    }
+	var ip net.IP
+	switch v := addr.(type) {
+	case *net.IPNet:
+		ip = v.IP
+	case *net.IPAddr:
+		ip = v.IP
+	}
+	if ip == nil || ip.IsLoopback() {
+		return ""
+	}
+	ip = ip.To4()
+	if ip == nil {
+		return "" // not an ipv4 address
+	}
 
-    return ip.String()
+	return ip.String()
 }
-
 
 func DefaultApiServer(srv *Telegrafana) *ApiServer {
 	return NewApiServer("0.0.0.0", PORT, srv)
@@ -102,16 +100,16 @@ func NewApiServer(addr string, port int, srv *Telegrafana) *ApiServer {
 	r := gin.Default()
 
 	// Web console
-	r.LoadHTMLGlob("html/index.html")
+	r.StaticFile("/", "html/index.html")
 	r.Static("/assets", "./html/assets")
-	r.GET("/", renderConsolePage)
+	//r.GET("/", renderConsolePage)
 
-	return &ApiServer {
-		Host: "",
-		Addr: addr,
-		Port: port,
+	return &ApiServer{
+		Host:   "",
+		Addr:   addr,
+		Port:   port,
 		Engine: r,
-		Srv: srv,
+		Srv:    srv,
 	}
 }
 
@@ -139,14 +137,14 @@ func (t *ApiServer) Start() error {
 	return t.Engine.Run(addr)
 }
 
-func (t *ApiServer)getInstances(c *gin.Context) {
+func (t *ApiServer) getInstances(c *gin.Context) {
 	// Get all the instance information list
 	instances, err := t.Srv.StorageManager.GetInstanceList()
 	total := len(instances)
 	if err != nil || total < 1 {
-		data := map[string]interface{} {
+		data := map[string]interface{}{
 			"total": total,
-			"data": make([]interface{}, 0),
+			"data":  make([]interface{}, 0),
 		}
 		c.JSON(http.StatusOK, createApiResp(nil, data))
 		return
@@ -173,16 +171,16 @@ func (t *ApiServer)getInstances(c *gin.Context) {
 	}
 
 	// Send response
-	ret := map[string]interface{} {
+	ret := map[string]interface{}{
 		"total": total,
-		"data": data,
+		"data":  data,
 	}
 	c.JSON(http.StatusOK, createApiResp(nil, ret))
 }
 
 type HandlerFunc func(string) error
 
-func (t *ApiServer)handleTelegrafInstance(c *gin.Context, handler HandlerFunc) {
+func (t *ApiServer) handleTelegrafInstance(c *gin.Context, handler HandlerFunc) {
 	instanceID := c.Param("name")
 	instanceInfo, err := t.Srv.StorageManager.GetInstance(instanceID)
 	if err != nil {
@@ -204,19 +202,19 @@ func (t *ApiServer)handleTelegrafInstance(c *gin.Context, handler HandlerFunc) {
 	c.JSON(http.StatusOK, createApiResp(err, nil))
 }
 
-func (t *ApiServer)startTelegrafInstance(c *gin.Context) {
+func (t *ApiServer) startTelegrafInstance(c *gin.Context) {
 	t.handleTelegrafInstance(c, t.Srv.InstanceManager.StartTelegrafInstance)
 }
 
-func (t *ApiServer)stopTelegrafInstance(c *gin.Context) {
+func (t *ApiServer) stopTelegrafInstance(c *gin.Context) {
 	t.handleTelegrafInstance(c, t.Srv.InstanceManager.StopTelegrafInstance)
 }
 
-func (t *ApiServer)restartTelegrafInstance(c *gin.Context) {
+func (t *ApiServer) restartTelegrafInstance(c *gin.Context) {
 	t.handleTelegrafInstance(c, t.Srv.InstanceManager.RestartTelegrafInstance)
 }
 
-func (t *ApiServer)createTelegrafConfig(c *gin.Context) (string, error) {
+func (t *ApiServer) createTelegrafConfig(c *gin.Context) (string, error) {
 	b, err := ioutil.ReadFile("./test001.conf")
 	if err != nil {
 		return "", err
@@ -225,12 +223,12 @@ func (t *ApiServer)createTelegrafConfig(c *gin.Context) (string, error) {
 	return string(b), nil
 }
 
-func (t *ApiServer)removeTelegrafInstance(c *gin.Context) {
+func (t *ApiServer) removeTelegrafInstance(c *gin.Context) {
 	instanceID := c.Param("name")
 	fmt.Println("ID:", instanceID)
 
 	instanceInfo, err := t.Srv.StorageManager.GetInstance(instanceID)
-	if err != nil || instanceInfo == nil{
+	if err != nil || instanceInfo == nil {
 		c.JSON(http.StatusNotFound, createApiResp(nil, nil))
 		return
 	}
@@ -249,7 +247,7 @@ func (t *ApiServer)removeTelegrafInstance(c *gin.Context) {
 	c.JSON(http.StatusNotFound, createApiResp(nil, nil))
 }
 
-func (t *ApiServer)createTelegrafInstance(c *gin.Context) {
+func (t *ApiServer) createTelegrafInstance(c *gin.Context) {
 	instanceID := uuid.New().String()
 	configUrl := fmt.Sprintf("http://%s:%d/instance/config/%s", t.Host, t.Port, instanceID)
 	fmt.Println("Config URL:", configUrl)
@@ -269,13 +267,13 @@ func (t *ApiServer)createTelegrafInstance(c *gin.Context) {
 	}
 
 	// Add information into database
-	instanceObj := &TelegrafInstanceInfo {
-		ID: instanceID,
-		Name: "",
+	instanceObj := &TelegrafInstanceInfo{
+		ID:                instanceID,
+		Name:              "",
 		DockerContainerID: containerID,
-		Config: configStr,
-		Description: "",
-		Created: GetCurrentTimeString(),
+		Config:            configStr,
+		Description:       "",
+		Created:           GetCurrentTimeString(),
 	}
 	err = t.Srv.StorageManager.PutInstance(instanceObj)
 	if err != nil {
@@ -290,14 +288,14 @@ func (t *ApiServer)createTelegrafInstance(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
 	} else {
-		data := map[string]interface{} {
+		data := map[string]interface{}{
 			"id": instanceID,
 		}
 		c.JSON(http.StatusOK, createApiResp(nil, data))
 	}
 }
 
-func (t *ApiServer)getTelegrafConfig(c *gin.Context) {
+func (t *ApiServer) getTelegrafConfig(c *gin.Context) {
 	instanceID := c.Param("name")
 	fmt.Println("ID:", instanceID)
 	instanceInfo, err := t.Srv.StorageManager.GetInstance(instanceID)
@@ -306,7 +304,7 @@ func (t *ApiServer)getTelegrafConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
 		return
 	}
-	
+
 	if instanceInfo == nil {
 		c.JSON(http.StatusNotFound, createApiResp(nil, nil))
 		return
@@ -321,28 +319,28 @@ func (t *ApiServer)getTelegrafConfig(c *gin.Context) {
 }
 
 type TelegrafInstanceResp struct {
-	ID string `json:"id"`
-	Name string `json:"name"`
-	Status string `json:"status"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Status  string `json:"status"`
 	Created string `json:"created"`
-	Config string `json:"config"`
+	Config  string `json:"config"`
 }
 
-func (t *ApiServer)createInstanceResp(instanceInfo *TelegrafInstanceInfo, containerStat *TelegrafInstanceStat) TelegrafInstanceResp {
+func (t *ApiServer) createInstanceResp(instanceInfo *TelegrafInstanceInfo, containerStat *TelegrafInstanceStat) TelegrafInstanceResp {
 	status := "Removed"
 	if containerStat != nil {
 		status = containerStat.Status
 	}
 	return TelegrafInstanceResp{
-		ID: instanceInfo.ID,
-		Name: instanceInfo.Name,
-		Config: instanceInfo.Config,
+		ID:      instanceInfo.ID,
+		Name:    instanceInfo.Name,
+		Config:  instanceInfo.Config,
 		Created: instanceInfo.Created,
-		Status: status,
+		Status:  status,
 	}
 }
 
-func (t *ApiServer)getTelegrafInstance(c *gin.Context) {
+func (t *ApiServer) getTelegrafInstance(c *gin.Context) {
 	instanceID := c.Param("name")
 	fmt.Println("ID:", instanceID)
 	instanceInfo, err := t.Srv.StorageManager.GetInstance(instanceID)
@@ -350,7 +348,7 @@ func (t *ApiServer)getTelegrafInstance(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, createApiResp(err, nil))
 		return
 	}
-	
+
 	if instanceInfo == nil {
 		c.JSON(http.StatusNotFound, createApiResp(nil, nil))
 		return
@@ -363,8 +361,8 @@ func (t *ApiServer)getTelegrafInstance(c *gin.Context) {
 	}
 
 	// Send response
-	var data interface {}
-	data= t.createInstanceResp(instanceInfo, containerInfo)
+	var data interface{}
+	data = t.createInstanceResp(instanceInfo, containerInfo)
 	c.JSON(http.StatusOK, createApiResp(nil, data))
 }
 

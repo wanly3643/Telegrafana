@@ -1,0 +1,13 @@
+[{
+    "key": "interval",
+    "name": "agent.interval",
+    "type": "input",
+    "element": "integer",
+    "unit": "s"
+},{
+    "key": "flush_interval",
+    "name": "agent.flush_interval",
+    "type": "input",
+    "element": "integer",
+    "unit": "s"
+}]
