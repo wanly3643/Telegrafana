@@ -124,17 +124,42 @@ func (t *ApiServer) Start() error {
 
 	addr := fmt.Sprintf("%s:%d", t.Addr, t.Port)
 
+	api := t.Engine.Group("/api")
+
 	// Web Apis
-	t.Engine.POST("/instance/create", t.createTelegrafInstance)
-	t.Engine.POST("/instance/start/:name", t.startTelegrafInstance)
-	t.Engine.POST("/instance/stop/:name", t.stopTelegrafInstance)
-	t.Engine.POST("/instance/restart/:name", t.restartTelegrafInstance)
-	t.Engine.POST("/instance/delete/:name", t.removeTelegrafInstance)
-	t.Engine.GET("/instance/config/:name", t.getTelegrafConfig)
-	t.Engine.GET("/instance/detail/:name", t.getTelegrafInstance)
-	t.Engine.GET("/instance/list", t.getInstances)
+	api.POST("/instance/create", t.createTelegrafInstance)
+	api.POST("/instance/start/:name", t.startTelegrafInstance)
+	api.POST("/instance/stop/:name", t.stopTelegrafInstance)
+	api.POST("/instance/restart/:name", t.restartTelegrafInstance)
+	api.POST("/instance/delete/:name", t.removeTelegrafInstance)
+	api.GET("/instance/config/:name", t.getTelegrafConfig)
+	api.GET("/instance/detail/:name", t.getTelegrafInstance)
+	api.GET("/instance/list", t.getInstances)
+	api.GET("/metadata/agent", t.getAgentMetadata)
+	api.GET("/metadata/input/:name", t.getPluginMetadata)
+	api.GET("/metadata/output/:name", t.getPluginMetadata)
+	api.GET("/metadata/processor/:name", t.getPluginMetadata)
+	api.GET("/metadata/aggregator/:name", t.getPluginMetadata)
 
 	return t.Engine.Run(addr)
+}
+
+func (t *ApiServer) getAgentMetadata(c *gin.Context) {
+	data := make([]map[string]interface{}, 0, 0)
+	ret := map[string]interface{}{
+		"title": "Agent",
+		"data":  data,
+	}
+	c.JSON(http.StatusOK, createApiResp(nil, ret))
+}
+
+func (t *ApiServer) getPluginMetadata(c *gin.Context) {
+	data := make([]map[string]interface{}, 0, 0)
+	ret := map[string]interface{}{
+		"title": "Plugin",
+		"data":  data,
+	}
+	c.JSON(http.StatusOK, createApiResp(nil, ret))
 }
 
 func (t *ApiServer) getInstances(c *gin.Context) {
